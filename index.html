@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>ANCA Vision Video Library</title>
+  <title>ANCA Video Library</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     /* Use DIN for all text */
@@ -180,10 +180,11 @@
       <div class="featured-buttons">
         <span class="featured-label">Featured Categories:</span>
         <button onclick="filterByTitle('Case Studies')">Case Studies</button>
-        <button onclick="filterByTitle('CNC Tool')">CNC Grinders</button>
+        <button onclick="filterByTitle('CNC Tool & Cutter Grinders')">CNC Tool &amp; Cutter Grinders</button>
         <button onclick="filterByTitle('Tool Tip Tuesday')">Tool Tip Tuesday</button>
         <button onclick="filterByTitle('ANCA Academy')">ANCA Academy</button>
         <button onclick="filterByTitle('3C Electronics')">3C Electronics</button>
+        <button onclick="filterByTitle('ANCA Software')">ANCA Software</button>
       </div>
       <div class="dropdowns">
         <select id="filter">
@@ -221,10 +222,10 @@
     let playlists = {};
 
     async function fetchPlaylists() {
-      const res = await fetch(
+      const response = await fetch(
         `https://www.googleapis.com/youtube/v3/playlists?part=snippet&channelId=${channelId}&maxResults=50&key=${apiKey}`
       );
-      const data = await res.json();
+      const data = await response.json();
       return data.items || [];
     }
 
@@ -232,53 +233,63 @@
       let videos = [];
       let nextPageToken = '';
       do {
-        const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${playlist.id}&maxResults=50&key=${apiKey}` + (nextPageToken ? `&pageToken=${nextPageToken}` : '');
-        const res = await fetch(url);
-        const data = await res.json();
+        const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${playlist.id}&maxResults=50&key=${apiKey}`
+                  + (nextPageToken ? `&pageToken=${nextPageToken}` : '');
+        const response = await fetch(url);
+        const data = await response.json();
         nextPageToken = data.nextPageToken || '';
         (data.items || []).forEach(item => {
           const sn = item.snippet;
-          if (sn.title !== 'Private video' && sn.resourceId && sn.resourceId.videoId) {
+          if (sn.title !== 'Private video' && sn.resourceId?.videoId) {
             videos.push({
               videoId: sn.resourceId.videoId,
-              title: sn.title,
-              description: sn.description,
-              thumbnail: (sn.thumbnails && (sn.thumbnails.medium || sn.thumbnails.default) || {}).url || '',
-              publishedAt: sn.publishedAt,
               playlistId: playlist.id,
               playlistTitle: playlist.snippet.title
             });
           }
         });
       } while (nextPageToken);
-
-      // Fetch view counts in chunks of 50
-      for (let i = 0; i < videos.length; i += 50) {
-        const chunk = videos.slice(i, i + 50);
-        const ids = chunk.map(v => v.videoId).join(',');
-        const statsRes = await fetch(
-          `https://www.googleapis.com/youtube/v3/videos?part=statistics&id=${ids}&key=${apiKey}`
-        );
-        const statsData = await statsRes.json();
-        (statsData.items || []).forEach((item, idx) => {
-          chunk[idx].views = parseInt(item.statistics.viewCount || '0', 10);
-        });
-      }
-
       return videos;
     }
 
-    function formatDate(d) {
-      return new Date(d).toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' });
+    async function enrichVideoDetails(videos) {
+      for (let i = 0; i < videos.length; i += 50) {
+        const chunk = videos.slice(i, i + 50);
+        const ids = chunk.map(v => v.videoId).join(',');
+        const response = await fetch(
+          `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${ids}&key=${apiKey}`
+        );
+        const data = await response.json();
+        (data.items || []).forEach((item, idx) => {
+          chunk[idx].title = item.snippet.title;
+          chunk[idx].description = item.snippet.description;
+          chunk[idx].thumbnail = (item.snippet.thumbnails.medium || item.snippet.thumbnails.default).url;
+          chunk[idx].publishedAt = item.snippet.publishedAt;
+          chunk[idx].views = parseInt(item.statistics.viewCount || '0', 10);
+        });
+      }
     }
-    function formatViews(v) {
-      return v.toLocaleString() + ' views';
+
+    function formatDate(dateString) {
+      return new Date(dateString).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    }
+
+    function formatViews(views) {
+      return views.toLocaleString() + ' views';
     }
 
     function sortVideos(videos, method) {
       return videos.slice().sort((a, b) => {
-        if (method === 'oldest') return new Date(a.publishedAt) - new Date(b.publishedAt);
-        if (method === 'views') return b.views - a.views;
+        if (method === 'oldest') {
+          return new Date(a.publishedAt) - new Date(b.publishedAt);
+        }
+        if (method === 'views') {
+          return b.views - a.views;
+        }
         return new Date(b.publishedAt) - new Date(a.publishedAt);
       });
     }
@@ -292,7 +303,10 @@
         card.innerHTML = `
           <img src="${video.thumbnail}" loading="lazy" alt="${video.title}">
           <div class="video-title">${video.title}</div>
-          <div class="video-meta">${formatViews(video.views)}<br>Published: ${formatDate(video.publishedAt)}</div>
+          <div class="video-meta">
+            ${formatViews(video.views)}<br>
+            Published: ${formatDate(video.publishedAt)}
+          </div>
         `;
         card.addEventListener('click', () => openModal(video));
         grid.appendChild(card);
@@ -302,7 +316,8 @@
     function openModal(video) {
       const modal = document.getElementById('modal');
       modal.style.display = 'flex';
-      document.getElementById('modal-video').src = `https://www.youtube.com/embed/${video.videoId}?autoplay=1`;
+      document.getElementById('modal-video').src =
+        `https://www.youtube.com/embed/${video.videoId}?autoplay=1`;
       document.getElementById('modal-title').textContent = video.title;
       document.getElementById('modal-description').textContent = video.description;
     }
@@ -313,32 +328,40 @@
       document.getElementById('modal-video').src = '';
     }
 
-    function filterByTitle(text) {
-      const matches = Object.entries(playlists)
-        .filter(([, name]) => name.toLowerCase().includes(text.toLowerCase()))
+    function filterByTitle(searchText) {
+      const lower = searchText.toLowerCase();
+      const matchingPlaylistIds = Object.entries(playlists)
+        .filter(([, name]) => name.toLowerCase().includes(lower))
         .map(([id]) => id);
-      const filtered = allVideos.filter(v => matches.includes(v.playlistId));
+      const filtered = allVideos.filter(v => matchingPlaylistIds.includes(v.playlistId));
       renderVideos(filtered);
     }
 
     async function loadVideos() {
       const pls = await fetchPlaylists();
-      const vids = await Promise.all(pls.map(pl => {
+      const videoIdArrays = await Promise.all(pls.map(pl => {
         playlists[pl.id] = pl.snippet.title;
         filter.innerHTML += `<option value="${pl.id}">${pl.snippet.title}</option>`;
         return fetchVideosFromPlaylist(pl);
       }));
-      allVideos = vids.flat();
+      const minimalVideos = videoIdArrays.flat();
+      await enrichVideoDetails(minimalVideos);
+      allVideos = minimalVideos;
       loading.style.display = 'none';
       renderVideos(allVideos);
     }
 
     filter.addEventListener('change', () => {
       const val = filter.value;
-      const subset = val === 'all' ? allVideos : allVideos.filter(v => v.playlistId === val);
+      const subset = val === 'all'
+        ? allVideos
+        : allVideos.filter(v => v.playlistId === val);
       renderVideos(subset);
     });
-    sort.addEventListener('change', () => filter.dispatchEvent(new Event('change')));
+
+    sort.addEventListener('change', () =>
+      filter.dispatchEvent(new Event('change'))
+    );
 
     loadVideos();
   </script>
